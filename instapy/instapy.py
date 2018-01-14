@@ -56,7 +56,8 @@ class InstaPy:
                  show_logs=True,
                  headless_browser=False,
                  proxy_address=None,
-                 proxy_port=0):
+                 proxy_port=0,
+                 bypass_suspicious_attempt=False):
 
         if nogui:
             self.display = Display(visible=0, size=(800, 600))
@@ -111,6 +112,8 @@ class InstaPy:
         self.like_by_followers_upper_limit = 0
         self.like_by_followers_lower_limit = 0
 
+        self.bypass_suspicious_attempt = bypass_suspicious_attempt
+
         self.aborting = False
 
         # initialize and setup logging system
@@ -134,7 +137,7 @@ class InstaPy:
         if os.name == 'nt':
             error_msg = ('Sorry, Record Activity is not working on Windows. '
                          'We\'re working to fix this soon!')
-            self.logger.critical(error_msg)
+            self.logger.warning(error_msg)
 
     def set_selenium_local_session(self):
         """Starts local session for a selenium server.
@@ -155,10 +158,14 @@ class InstaPy:
 
             if self.proxy_address and self.proxy_port > 0:
                 firefox_profile.set_preference('network.proxy.type', 1)
-                firefox_profile.set_preference('network.proxy.http', self.proxy_address)
-                firefox_profile.set_preference('network.proxy.http_port', self.proxy_port)
-                firefox_profile.set_preference('network.proxy.ssl', self.proxy_address)
-                firefox_profile.set_preference('network.proxy.ssl_port', self.proxy_port)
+                firefox_profile.set_preference('network.proxy.http',
+                                               self.proxy_address)
+                firefox_profile.set_preference('network.proxy.http_port',
+                                               self.proxy_port)
+                firefox_profile.set_preference('network.proxy.ssl',
+                                               self.proxy_address)
+                firefox_profile.set_preference('network.proxy.ssl_port',
+                                               self.proxy_port)
 
             self.browser = webdriver.Firefox(firefox_profile=firefox_profile)
 
@@ -170,29 +177,14 @@ class InstaPy:
             chrome_options.add_argument('--lang=en-US')
             chrome_options.add_argument('--disable-setuid-sandbox')
 
-            if self.proxy_address and self.proxy_port > 0:
-                proxy = '{ip}:{port}'.format(ip=self.proxy_address, port=self.proxy_port)
-                chrome_options.add_argument('--proxy-server=http://{proxy}'.format(proxy=proxy))
-
-            ## This option implements Chrome Headless, a new (late 2017) GUI-less browser
-            ## Must be Chromedriver 2.9 and above.
+            # this option implements Chrome Headless, a new (late 2017)
+            # GUI-less browser. chromedriver 2.9 and above required
             if self.headless_browser:
                 chrome_options.add_argument('--headless')
-                user_agent = "Chrome" # Replaces browser User Agent from "HeadlessChrome".
-                chrome_options.add_argument('user-agent={user_agent}'.format(user_agent=user_agent))
-
-            # managed_default_content_settings.images = 2: Disable images load,
-            # this setting can improve pageload & save bandwidth
-            # default_content_setting_values.notifications = 2:
-            # Disable notifications
-            # credentials_enable_service & password_manager_enabled = false:
-            # Ignore save password prompt from chrome
-            # 'profile.managed_default_content_settings.images': 2,
-            # 'profile.default_content_setting_values.notifications' : 2,
-            # 'credentials_enable_service': False,
-            # 'profile': {
-            #   'password_manager_enabled': False
-            # }
+                # Replaces browser User Agent from "HeadlessChrome".
+                user_agent = "Chrome"
+                chrome_options.add_argument('user-agent={user_agent}'
+                                            .format(user_agent=user_agent))
 
             chrome_prefs = {
                 'intl.accept_languages': 'en-US'
@@ -231,7 +223,8 @@ class InstaPy:
         if not login_user(self.browser,
                           self.username,
                           self.password,
-                          self.switch_language):
+                          self.switch_language,
+                          self.bypass_suspicious_attempt):
             self.logger.critical('Wrong login data!')
 
             self.aborting = True
@@ -933,7 +926,7 @@ class InstaPy:
                 links = get_links_for_username(self.browser,
                                                username,
                                                amount,
-                                               self.logger, 
+                                               self.logger,
                                                randomize,
                                                media)
             except NoSuchElementException:
@@ -1098,7 +1091,6 @@ class InstaPy:
                                                 amount,
                                                 self.dont_include,
                                                 self.username,
-                                                self.follow_restrict,
                                                 randomize,
                                                 self.logger)
                 if isinstance(user, list):
@@ -1116,7 +1108,8 @@ class InstaPy:
         self.logger.info('--> Users: {} \n'.format(len(userToInteract)))
         userToInteract = random.sample(
             userToInteract,
-            int(ceil(self.user_interact_percentage * len(userToInteract) / 100)))
+            int(ceil(
+                self.user_interact_percentage * len(userToInteract) / 100)))
 
         self.like_by_users(userToInteract,
                            self.user_interact_amount,
@@ -1138,7 +1131,6 @@ class InstaPy:
                     amount,
                     self.dont_include,
                     self.username,
-                    self.follow_restrict,
                     randomize,
                     self.logger)
         except (TypeError, RuntimeWarning) as err:
@@ -1185,7 +1177,8 @@ class InstaPy:
                                                             randomize,
                                                             sleep_delay,
                                                             self.blacklist,
-                                                            self.logger)
+                                                            self.logger,
+                                                            self.follow_times)
 
             except (TypeError, RuntimeWarning) as err:
                 if isinstance(err, RuntimeWarning):
@@ -1232,7 +1225,8 @@ class InstaPy:
                                                             randomize,
                                                             sleep_delay,
                                                             self.blacklist,
-                                                            self.logger)
+                                                            self.logger,
+                                                            self.follow_times)
 
             except (TypeError, RuntimeWarning) as err:
                 if isinstance(err, RuntimeWarning):
@@ -1245,7 +1239,8 @@ class InstaPy:
                     self.aborting = True
 
                     return self
-        self.logger.info("--> Total people followed : {} ".format(len(userFollowed)))
+        self.logger.info("--> Total people followed : {} "
+                         .format(len(userFollowed)))
 
         if interact:
             self.logger.info('--> User followed: {}'.format(userFollowed))
@@ -1454,7 +1449,7 @@ class InstaPy:
                                 self.logger.info(
                                     '--> Image not liked: {}'.format(reason))
                                 inap_img += 1
-                                if reason == 'Inappropriate':
+                                if reason == 'Inappropriate' and unfollow:
                                     unfollow_user(self.browser, self.logger)
                         except NoSuchElementException as err:
                             self.logger.error('Invalid Page: {}'.format(err))
@@ -1522,3 +1517,78 @@ class InstaPy:
 
         with open('./logs/followed.txt', 'w') as followFile:
             followFile.write(str(self.followed))
+
+    def follow_by_tags(self,
+                     tags=None,
+                     amount=50,
+                     media=None,
+                     skip_top_posts=True,
+                     use_smart_hashtags=False):
+        if self.aborting:
+            return self
+
+        inap_img = 0
+        followed = 0
+
+        # if smart hashtag is enabled
+        if use_smart_hashtags is True and self.smart_hashtags is not []:
+            print('Using smart hashtags')
+            tags = self.smart_hashtags
+
+        # deletes white spaces in tags
+        tags = [tag.strip() for tag in tags]
+
+        tags = tags or []
+
+        for index, tag in enumerate(tags):
+            self.logger.info('Tag [{}/{}]'.format(index + 1, len(tags)))
+            self.logger.info('--> {}'.format(tag.encode('utf-8')))
+
+            try:
+                links = get_links_for_tag(self.browser,
+                                          tag,
+                                          amount,
+                                          self.logger,
+                                          media,
+                                          skip_top_posts)
+            except NoSuchElementException:
+                self.logger.error('Too few images, skipping this tag')
+                continue
+
+            for i, link in enumerate(links):
+                self.logger.info('[{}/{}]'.format(i + 1, len(links)))
+                self.logger.info(link)
+
+                try:
+                    inappropriate, user_name, is_video, reason = (
+                        check_link(self.browser,
+                                   link,
+                                   self.dont_like,
+                                   self.ignore_if_contains,
+                                   self.ignore_users,
+                                   self.username,
+                                   self.like_by_followers_upper_limit,
+                                   self.like_by_followers_lower_limit,
+                                   self.logger)
+                    )
+
+                    if not inappropriate:
+                        followed += follow_user(self.browser,
+                                                        self.follow_restrict,
+                                                        self.username,
+                                                        user_name,
+                                                        self.blacklist,
+                                                        self.logger)                        
+                    else:
+                        self.logger.info(
+                            '--> User not followed: {}'.format(reason))
+                        inap_img += 1
+                except NoSuchElementException as err:
+                    self.logger.error('Invalid Page: {}'.format(err))
+
+        self.logger.info('Inappropriate: {}'.format(inap_img))
+        self.logger.info('Followed: {}'.format(followed))
+
+        self.followed += followed
+
+        return self
